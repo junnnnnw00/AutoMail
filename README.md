@@ -6,25 +6,63 @@
 
 ## 설치
 
-터미널에 아래 한 줄 붙여넣기:
+### 권장 — 자동 설치 (터미널 한 줄)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/junnnnnw00/AutoMail/main/Scripts/install.sh | bash
 ```
 
-다운로드 → 앱 이동 → Gatekeeper 해제까지 자동 처리. macOS 14+, Apple Silicon 전용.
+다운로드 → `~/Applications` 이동 → Gatekeeper 해제까지 자동. macOS 14+, Apple Silicon 전용.
 
-## 초기 설정
+### 수동 설치
 
-메뉴바 아이콘 → **환경설정...**
+1. [Releases](../../releases/latest)에서 `MailSorter-*.zip` 다운로드
+2. 압축 해제 후 `MailSorter.app`을 `~/Applications`로 이동
+3. 터미널에서 Gatekeeper 해제:
+   ```bash
+   xattr -dr com.apple.quarantine ~/Applications/MailSorter.app
+   ```
+4. 앱 실행 → 메뉴바 우측 트레이 아이콘 확인
 
-| 탭 | 설정 |
+---
+
+## 계정 연결 (처음 한 번)
+
+### 1단계 — 학교 메일(Outlook) → Gmail 자동 전달 설정
+
+1. [Outlook 웹](https://outlook.office.com) 로그인
+2. 우측 상단 ⚙️ → **메일 → 전달** (또는 직접: [outlook.office.com/mail/options/mail/forwarding](https://outlook.office.com/mail/options/mail/forwarding))
+3. **전달 사용** 체크 → Gmail 주소 입력 → 저장
+
+> 학교에서 외부 전달을 막아 둔 경우 IT 담당자에게 문의하거나, 학교 웹메일의 IMAP을 직접 사용하세요.
+
+### 2단계 — Gmail 앱 비밀번호 발급
+
+AutoMail은 일반 Google 비밀번호 대신 **앱 비밀번호** (16자리)를 사용합니다.
+
+1. [Google 앱 비밀번호 페이지](https://myaccount.google.com/apppasswords) 이동 (2단계 인증이 켜져 있어야 접근 가능)
+2. 앱 이름 입력 (예: `AutoMail`) → **만들기**
+3. 표시되는 **16자리 코드** 복사 (띄어쓰기 없이)
+
+> 2단계 인증이 꺼져 있으면 [여기서 먼저 활성화](https://myaccount.google.com/signinoptions/twosv).
+
+### 3단계 — AutoMail에 계정 등록
+
+메뉴바 아이콘 → **환경설정 → 계정 탭**
+
+| 항목 | 값 |
 |---|---|
-| 계정 | IMAP 호스트/포트/이메일/앱 비밀번호 입력 → 저장 + 연결 테스트 |
-| 알림 | 일일 다이제스트 시각, 즉시 알림 여부 → 저장 |
-| 데몬 | 로그인 시 자동 시작 ON |
+| 서버 | `imap.gmail.com` |
+| 포트 | `993` |
+| TLS | ON |
+| 이메일 | Gmail 주소 |
+| 앱 비밀번호 | 2단계에서 발급한 16자리 |
 
-**Gmail 앱 비밀번호 발급**: Google 계정 → 보안 → 2단계 인증 → 앱 비밀번호 (16자리)
+→ **저장 + 키체인 등록** → **연결 테스트** 로 확인
+
+### 4단계 — 자동시작 설정
+
+환경설정 → **데몬 탭** → 로그인 시 자동 시작 ON
 
 ## 기능
 
