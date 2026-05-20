@@ -4,15 +4,15 @@
 
 > **요구사항**: macOS 14.0+, Apple Silicon (arm64)
 
-## 다운로드 & 설치
+## 설치
 
-1. [Releases](../../releases/latest)에서 `MailSorter.zip` 다운로드
-2. 압축 해제 후 `MailSorter.app`을 `/Applications` 또는 `~/Applications`로 이동
-3. Gatekeeper 우회 (미서명 앱이므로 최초 1회 필요):
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/MailSorter.app
-   ```
-4. 앱 실행 → 메뉴바 우측 트레이 아이콘 확인
+터미널에 아래 한 줄 붙여넣기:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/junnnnnw00/AutoMail/main/Scripts/install.sh | bash
+```
+
+다운로드 → 앱 이동 → Gatekeeper 해제까지 자동 처리. macOS 14+, Apple Silicon 전용.
 
 ## 초기 설정
 
