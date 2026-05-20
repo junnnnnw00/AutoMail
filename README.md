@@ -50,6 +50,18 @@
 open ~/Applications/MailSorter.app
 ```
 
+## 릴리즈 배포 (maintainer)
+
+```bash
+# gh CLI 필요: brew install gh && gh auth login
+./Scripts/release.sh v0.2.0
+
+# 릴리즈 노트 직접 지정
+./Scripts/release.sh v0.2.0 "버그 수정: ..."
+```
+
+빌드 → .app 패키징 → GitHub Release 생성까지 자동으로 처리.
+
 ## 디렉토리 구조
 
 ```
