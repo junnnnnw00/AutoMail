@@ -4,6 +4,9 @@
 
 > **요구사항**: macOS 14.0+, Apple Silicon (arm64)
 
+<img width="392" height="298" alt="Screenshot 2026-05-20 at 6 37 35 PM" src="https://github.com/user-attachments/assets/d327dea7-6d3e-4f43-8ffd-c67698bbc09f" />
+<img width="1372" height="934" alt="Screenshot 2026-05-20 at 6 37 50 PM" src="https://github.com/user-attachments/assets/7047a09e-3f2f-4599-a69c-4bf1705e7228" />
+
 ## 설치
 
 ### 권장 — 자동 설치
