@@ -3,6 +3,7 @@ import SharedKit
 
 struct MenuBarView: View {
     @EnvironmentObject var store: MailStore
+    @EnvironmentObject var updater: UpdateChecker
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -11,9 +12,9 @@ struct MenuBarView: View {
             HStack {
                 Text("MailSorter")
                     .font(.headline)
-                
+
                 Spacer()
-                
+
                 HStack(spacing: 4) {
                     Circle()
                         .fill(store.isDaemonRunning ? Color.green : Color.red)
@@ -43,6 +44,33 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if updater.updateAvailable, let latest = updater.latestVersion {
+                Divider()
+                Button {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(UpdateChecker.installCommand, forType: .string)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("v\(latest) 업데이트 있음")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.blue)
+                            Text("클릭 → 설치 명령어 복사")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+                .background(Color.blue.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+
             Divider()
 
             ForEach(MailLabel.allCases, id: \.self) { label in
@@ -51,9 +79,9 @@ struct MenuBarView: View {
                         .foregroundStyle(label.color)
                         .frame(width: 18)
                     Text(label.displayName)
-                    
+
                     Spacer()
-                    
+
                     let unread = store.unreadCounts[label] ?? 0
                     if unread > 0 {
                         Text("\(unread)")

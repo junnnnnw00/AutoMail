@@ -5,7 +5,10 @@ REPO="junnnnnw00/AutoMail"
 APP_NAME="MailSorter"
 INSTALL_DIR="$HOME/Applications"
 
-echo "▶︎ AutoMail 설치 시작..."
+IS_UPDATE=false
+[[ -d "$INSTALL_DIR/${APP_NAME}.app" ]] && IS_UPDATE=true
+ACTION=$( $IS_UPDATE && echo "업데이트" || echo "설치" )
+echo "▶︎ AutoMail ${ACTION} 시작..."
 
 # Check macOS version
 OS_VER=$(sw_vers -productVersion | cut -d. -f1)
@@ -59,13 +62,15 @@ echo "▶︎ Gatekeeper 제한 해제 중..."
 xattr -dr com.apple.quarantine "$INSTALL_DIR/${APP_NAME}.app" 2>/dev/null || true
 
 echo ""
-echo "✓ 설치 완료: $INSTALL_DIR/${APP_NAME}.app"
+echo "✓ ${ACTION} 완료: $INSTALL_DIR/${APP_NAME}.app"
 echo ""
-echo "초기 설정:"
-echo "  1. 메뉴바 아이콘 → 환경설정 → 계정 탭"
-echo "  2. IMAP 서버/이메일/앱 비밀번호 입력 후 저장"
-echo "  3. 데몬 탭 → '로그인 시 자동 시작' ON"
-echo ""
+if ! $IS_UPDATE; then
+    echo "초기 설정:"
+    echo "  1. 메뉴바 아이콘 → 환경설정 → 계정 탭"
+    echo "  2. IMAP 서버/이메일/앱 비밀번호 입력 후 저장"
+    echo "  3. 데몬 탭 → '로그인 시 자동 시작' ON"
+    echo ""
+fi
 
 read -r -p "지금 실행하시겠습니까? [Y/n] " REPLY
 REPLY="${REPLY:-Y}"

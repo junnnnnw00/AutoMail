@@ -6,6 +6,7 @@ struct MailSorterApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var store = MailStore()
     @StateObject private var settings = SettingsStore()
+    @StateObject private var updater = UpdateChecker()
     @Environment(\.openWindow) private var openWindow
 
     init() {
@@ -27,7 +28,9 @@ struct MailSorterApp: App {
             MenuBarView()
                 .environmentObject(store)
                 .environmentObject(settings)
+                .environmentObject(updater)
                 .frame(width: 360)
+                .onAppear { updater.check() }
         }
         .menuBarExtraStyle(.window)
 
