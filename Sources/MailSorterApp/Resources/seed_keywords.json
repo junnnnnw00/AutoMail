@@ -1,0 +1,11 @@
+{
+  "patterns": [
+    { "regex": "^\\s*\\[?\\s*교내회보\\s*\\]?", "label": "newsletter", "score": 0.98 },
+    { "regex": "^\\s*\\[?\\s*학사공지\\s*\\]?", "label": "newsletter", "score": 0.92 },
+    { "regex": "(?i)\\bnewsletter\\b", "label": "newsletter", "score": 0.85 },
+    { "regex": "(?i)\\bunsubscribe\\b", "label": "ad", "score": 0.85 },
+    { "regex": "광고|마케팅|특가|이벤트|프로모션|sale|할인쿠폰", "label": "ad", "score": 0.9 },
+    { "regex": "장학금|장학|학자금|등록금", "label": "important", "score": 0.85 },
+    { "regex": "성적|학점|졸업|수강신청|기말|중간고사", "label": "important", "score": 0.9 }
+  ]
+}

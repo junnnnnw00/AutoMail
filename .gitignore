@@ -1,0 +1,11 @@
+.build/
+*.o
+*.d
+*.dia
+*.swp
+.DS_Store
+DerivedData/
+*.xcworkspace
+xcuserdata/
+.omc/
+.claude/
