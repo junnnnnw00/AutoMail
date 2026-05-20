@@ -6,7 +6,7 @@
 
 ## 설치
 
-### 권장 — 자동 설치 (터미널 한 줄)
+### 권장 — 자동 설치
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/junnnnnw00/AutoMail/main/Scripts/install.sh | bash
