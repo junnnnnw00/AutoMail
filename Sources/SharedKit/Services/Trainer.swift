@@ -34,7 +34,7 @@ public final class Trainer: @unchecked Sendable {
         var texts: [String] = []
         var labels: [String] = []
         for sample in samples {
-            let text = sample.subject + "\n" + sample.body
+            let text = "[From: \(sample.fromAddress)]\n" + sample.subject + "\n" + sample.body
             for label in sample.labels {
                 texts.append(text)
                 labels.append(label.rawValue)

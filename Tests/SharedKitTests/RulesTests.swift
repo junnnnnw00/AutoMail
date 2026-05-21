@@ -36,4 +36,28 @@ struct RulesTests {
         #expect(labels.contains(.newsletter))
         #expect(labels.contains(.important))
     }
+
+    @Test func schoolDomainAdExclusion() {
+        let rules = Rules(patterns: Rules.defaultPatterns)
+        // A school mail containing "이벤트" (event) which would normally trigger an "ad" rule hit
+        let hits = rules.evaluate(
+            subject: "[교내회보] 대학 창업 캠프 이벤트 안내",
+            body: "많은 참여 바랍니다.",
+            fromAddress: "startup@postech.ac.kr"
+        )
+        // Check that 'ad' is excluded because the sender is from postech.ac.kr
+        #expect(!hits.contains(where: { $0.label == .ad }))
+        #expect(hits.contains(where: { $0.label == .newsletter }))
+    }
+
+    @Test func classifierSchoolDomainAdFiltering() {
+        let classifier = NLClassifier()
+        let result = classifier.classify(
+            subject: "[교내회보] 대학 창업 캠프 이벤트 안내",
+            body: "Click unsubscribe to stop mailings.",
+            fromAddress: "startup@postech.ac.kr"
+        )
+        #expect(!result.labels.contains(.ad))
+        #expect(result.labels.contains(.newsletter))
+    }
 }

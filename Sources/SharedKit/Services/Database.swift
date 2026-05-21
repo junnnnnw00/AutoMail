@@ -63,6 +63,10 @@ public final class Database: @unchecked Sendable {
             }
         }
 
+        m.registerMigration("v2") { db in
+            try db.execute(sql: "UPDATE mails SET label = '[\"' || label || '\"]' WHERE label NOT LIKE '[%';")
+        }
+
         return m
     }
 

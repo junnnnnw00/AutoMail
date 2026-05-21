@@ -52,9 +52,17 @@ public struct Rules: Sendable {
     }
 
     public func evaluate(subject: String, body: String, fromAddress: String) -> [RuleHit] {
+        let isSchoolMail = fromAddress.lowercased() == "postech.ac.kr" ||
+                           fromAddress.lowercased().hasSuffix("@postech.ac.kr") ||
+                           fromAddress.lowercased().hasSuffix(".postech.ac.kr")
+        
         let haystack = subject + "\n" + body + "\n" + fromAddress
         var hits: [RuleHit] = []
         for pattern in patterns {
+            if isSchoolMail && pattern.label == MailLabel.ad.rawValue {
+                continue
+            }
+            
             guard let regex = try? NSRegularExpression(pattern: pattern.regex, options: []) else { continue }
             let range = NSRange(haystack.startIndex..., in: haystack)
             if regex.firstMatch(in: haystack, options: [], range: range) != nil {

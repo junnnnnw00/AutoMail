@@ -61,7 +61,7 @@ public final class NLClassifier: @unchecked Sendable {
     public func classify(subject: String, body: String, fromAddress: String) -> ClassificationResult {
         let ruleHits = rules.evaluate(subject: subject, body: body, fromAddress: fromAddress)
         
-        let text = (subject + "\n\n" + body).prefix(4000)
+        let text = ("[From: \(fromAddress)]\n" + subject + "\n\n" + body).prefix(4000)
         let modelResult: (predicted: Set<MailLabel>, scores: [MailLabel: Double], isFallback: Bool) = queue.sync {
             guard let model else {
                 return (Set([.normal]), [.normal: 0.5], true)
@@ -101,8 +101,19 @@ public final class NLClassifier: @unchecked Sendable {
             }
         }
 
+        let isSchoolMail = fromAddress.lowercased() == "postech.ac.kr" ||
+                           fromAddress.lowercased().hasSuffix("@postech.ac.kr") ||
+                           fromAddress.lowercased().hasSuffix(".postech.ac.kr")
+        if isSchoolMail {
+            finalLabels.remove(.ad)
+        }
+
         if finalLabels.count > 1 {
             finalLabels.remove(.normal)
+        }
+        
+        if finalLabels.isEmpty {
+            finalLabels.insert(.normal)
         }
 
         return ClassificationResult(labels: finalLabels, scores: finalScores, source: source)

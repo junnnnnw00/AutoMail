@@ -34,61 +34,197 @@ public final class IMAPClient: IMAPClientProtocol, @unchecked Sendable {
     private var idleHandler: (@Sendable () -> Void)?
     private var connected = false
 
+    private let lock = NSRecursiveLock()
+    private var lastTask: Task<Void, Never> = Task { }
+    private var isIdling = false
+
     public init(creds: IMAPCredentials) {
         self.creds = creds
     }
 
     private func nextTag() -> String {
+        lock.lock()
+        defer { lock.unlock() }
         tagCounter += 1
         return String(format: "a%04d", tagCounter)
     }
 
-    public func connect() async throws {
-        let host = NWEndpoint.Host(creds.host)
-        let port = NWEndpoint.Port(integerLiteral: UInt16(creds.port))
-        let params: NWParameters = creds.useTLS ? .tls : .tcp
-        let conn = NWConnection(host: host, port: port, using: params)
-        self.connection = conn
+    // MARK: - Synchronous Thread-Safe Helpers
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            conn.stateUpdateHandler = { [weak self] state in
-                switch state {
-                case .ready:
-                    self?.connected = true
-                    continuation.resume()
-                case .failed(let error):
-                    continuation.resume(throwing: error)
-                case .cancelled:
-                    self?.connected = false
-                default:
-                    break
+    private func getIsIdling() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isIdling
+    }
+
+    private func setIsIdling(_ val: Bool) {
+        lock.lock()
+        isIdling = val
+        lock.unlock()
+    }
+
+    private func setIdleHandlerAndIdling(_ handler: (@Sendable () -> Void)?, idling: Bool) {
+        lock.lock()
+        self.idleHandler = handler
+        self.isIdling = idling
+        lock.unlock()
+    }
+
+    private func setIsAuthenticating(_ val: Bool) {
+        lock.lock()
+        isAuthenticating = val
+        lock.unlock()
+    }
+
+    private func setConnection(_ conn: NWConnection?) {
+        lock.lock()
+        self.connection = conn
+        lock.unlock()
+    }
+
+
+
+    private func updateConnectionState(connected: Bool, cancelConnection: Bool = false) {
+        lock.lock()
+        self.connected = connected
+        if cancelConnection {
+            self.connection?.cancel()
+            self.connection = nil
+        }
+        lock.unlock()
+    }
+
+    private func enqueueSerializedTask<T: Sendable>(
+        block: @escaping @Sendable () async throws -> T
+    ) -> Task<T, Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        let previous = lastTask
+        let new = Task {
+            _ = await previous.result
+            return try await block()
+        }
+        lastTask = Task { _ = await new.result }
+        return new
+    }
+
+    private func runSerialized<T: Sendable>(_ block: @escaping @Sendable () async throws -> T) async throws -> T {
+        if getIsIdling() {
+            MailSorterLog.imap.debug("Interrupting IDLE to run command...")
+            self.stopIdleInternal()
+        }
+        
+        let task = enqueueSerializedTask(block: block)
+        return try await task.value
+    }
+
+    private func stopIdleInternal() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isIdling else { return }
+        MailSorterLog.imap.debug("Sending DONE to interrupt IDLE")
+        connection?.send(content: "DONE\r\n".data(using: .utf8), completion: .contentProcessed { _ in })
+    }
+
+
+
+    private func handleIncomingData(data: Data?, isComplete: Bool, error: Error?) {
+        lock.lock()
+        if let data, !data.isEmpty {
+            self.buffer.append(data)
+            self.processBuffer()
+        }
+        if isComplete || error != nil {
+            self.connected = false
+            self.connection?.cancel()
+            self.connection = nil
+            let connError: Error = error ?? NSError(domain: "IMAP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Connection closed"])
+            if let cont = self.pendingContinuation {
+                self.pendingContinuation = nil
+                self.pendingTag = nil
+                self.pendingLines = []
+                lock.unlock()
+                cont.resume(throwing: connError)
+            } else {
+                lock.unlock()
+            }
+            return
+        }
+        lock.unlock()
+        self.startReading()
+    }
+
+    public func connect() async throws {
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            let host = NWEndpoint.Host(self.creds.host)
+            let port = NWEndpoint.Port(integerLiteral: UInt16(self.creds.port))
+            let params: NWParameters = self.creds.useTLS ? .tls : .tcp
+            let conn = NWConnection(host: host, port: port, using: params)
+            
+            self.lock.withLock {
+                self.connection = conn
+            }
+
+            class ResumedState: @unchecked Sendable {
+                private let lock = NSLock()
+                private var _resumed = false
+                func setResumed() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if _resumed {
+                        return false
+                    }
+                    _resumed = true
+                    return true
                 }
             }
-            conn.start(queue: queue)
-            self.startReading()
+            let state = ResumedState()
+
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                conn.stateUpdateHandler = { [weak self] connectionState in
+                    switch connectionState {
+                    case .ready:
+                        if state.setResumed() {
+                            conn.stateUpdateHandler = nil
+                            self?.updateConnectionState(connected: true)
+                            continuation.resume()
+                        }
+                    case .failed(let error):
+                        if state.setResumed() {
+                            conn.stateUpdateHandler = nil
+                            self?.updateConnectionState(connected: false, cancelConnection: true)
+                            continuation.resume(throwing: error)
+                        }
+                    case .cancelled:
+                        if state.setResumed() {
+                            conn.stateUpdateHandler = nil
+                            self?.updateConnectionState(connected: false, cancelConnection: true)
+                            continuation.resume(throwing: NSError(domain: "IMAP", code: -2, userInfo: [NSLocalizedDescriptionKey: "Connection cancelled"]))
+                        }
+                    default:
+                        break
+                    }
+                }
+                conn.start(queue: self.queue)
+                self.startReading()
+            }
+            _ = try await self.readGreeting()
         }
-        _ = try await readGreeting()
     }
 
     private func startReading() {
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+        lock.lock()
+        guard let conn = self.connection else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
             guard let self else { return }
-            if let data, !data.isEmpty {
-                self.buffer.append(data)
-                self.processBuffer()
-            }
-            if isComplete || error != nil {
-                self.connected = false
-                let connError: Error = error ?? NSError(domain: "IMAP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Connection closed"])
-                if let cont = self.pendingContinuation {
-                    self.pendingContinuation = nil
-                    self.pendingTag = nil
-                    self.pendingLines = []
-                    cont.resume(throwing: connError)
-                }
-                return
-            }
-            self.startReading()
+            self.handleIncomingData(data: data, isComplete: isComplete, error: error)
         }
     }
 
@@ -102,12 +238,11 @@ public final class IMAPClient: IMAPClientProtocol, @unchecked Sendable {
                     literalAccumulator += text
                     pendingLiteralSize = nil
                 } else {
-                    // Need more data for literal
                     break
                 }
             } else {
                 guard let range = buffer.range(of: Data([0x0D, 0x0A])) else {
-                    break // Need more data for a full line
+                    break
                 }
                 let lineData = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
                 buffer.removeSubrange(buffer.startIndex..<range.upperBound)
@@ -149,6 +284,9 @@ public final class IMAPClient: IMAPClientProtocol, @unchecked Sendable {
     private func handleLine(_ line: String) {
         MailSorterLog.imap.debug("S: \(line, privacy: .public)")
         
+        lock.lock()
+        defer { lock.unlock() }
+        
         if line.hasPrefix("* ") && (line.contains("EXISTS") || line.contains("EXPUNGE") || line.contains("RECENT")) {
             if let handler = idleHandler {
                 self.idleHandler = nil // Prevent multiple triggers
@@ -185,166 +323,246 @@ public final class IMAPClient: IMAPClientProtocol, @unchecked Sendable {
         let tag = nextTag()
         let line = "\(tag) \(command)\r\n"
         MailSorterLog.imap.debug("C: \(tag, privacy: .public) \(command, privacy: .public)")
+        
+        let timeoutSeconds: Double = 15.0
+        var timeoutTask: Task<Void, Never>? = nil
+        
+        defer {
+            timeoutTask?.cancel()
+        }
+        
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String], Error>) in
-            self.pendingTag = tag
-            self.pendingLines = []
-            self.pendingContinuation = continuation
-            guard let conn = self.connection else {
-                continuation.resume(throwing: NSError(domain: "IMAP", code: 2))
+            var connToUse: NWConnection? = nil
+            self.lock.withLock {
+                self.pendingTag = tag
+                self.pendingLines = []
+                self.pendingContinuation = continuation
+                connToUse = self.connection
+                if connToUse == nil {
+                    self.pendingContinuation = nil
+                    self.pendingTag = nil
+                }
+            }
+            
+            guard let conn = connToUse else {
+                continuation.resume(throwing: NSError(domain: "IMAP", code: 2, userInfo: [NSLocalizedDescriptionKey: "No connection"]))
                 return
             }
-            conn.send(content: line.data(using: .utf8), completion: .contentProcessed { error in
+            
+            timeoutTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                guard let self else { return }
+                
+                var contToResume: CheckedContinuation<[String], Error>? = nil
+                self.lock.withLock {
+                    if self.pendingTag == tag, let cont = self.pendingContinuation {
+                        self.pendingContinuation = nil
+                        self.pendingTag = nil
+                        self.pendingLines = []
+                        contToResume = cont
+                    }
+                }
+                
+                if let cont = contToResume {
+                    MailSorterLog.imap.error("Command \(tag) timed out after \(timeoutSeconds) seconds")
+                    cont.resume(throwing: NSError(domain: "IMAP", code: 3, userInfo: [NSLocalizedDescriptionKey: "Command timed out"]))
+                }
+            }
+            
+            conn.send(content: line.data(using: .utf8), completion: .contentProcessed { [weak self] error in
+                guard let self else { return }
                 if let error {
-                    continuation.resume(throwing: error)
+                    var contToResume: CheckedContinuation<[String], Error>? = nil
+                    self.lock.withLock {
+                        if self.pendingTag == tag, let cont = self.pendingContinuation {
+                            self.pendingContinuation = nil
+                            self.pendingTag = nil
+                            self.pendingLines = []
+                            contToResume = cont
+                        }
+                    }
+                    if let cont = contToResume {
+                        cont.resume(throwing: error)
+                    }
                 }
             })
         }
     }
 
     public func login() async throws {
-        let escapedUser = creds.username.replacingOccurrences(of: "\"", with: "\\\"")
-        let escapedPwd = creds.password.replacingOccurrences(of: "\"", with: "\\\"")
-        _ = try await send("LOGIN \"\(escapedUser)\" \"\(escapedPwd)\"")
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            let escapedUser = self.creds.username.replacingOccurrences(of: "\"", with: "\\\"")
+            let escapedPwd = self.creds.password.replacingOccurrences(of: "\"", with: "\\\"")
+            _ = try await self.send("LOGIN \"\(escapedUser)\" \"\(escapedPwd)\"")
+        }
     }
 
     public func authenticateXOAUTH2(username: String, token: String) async throws {
-        let oauthStr = "user=\(username)\u{01}auth=Bearer \(token)\u{01}\u{01}"
-        let b64 = Data(oauthStr.utf8).base64EncodedString()
-        isAuthenticating = true
-        defer { isAuthenticating = false }
-        _ = try await send("AUTHENTICATE XOAUTH2 \(b64)")
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            let oauthStr = "user=\(username)\u{01}auth=Bearer \(token)\u{01}\u{01}"
+            let b64 = Data(oauthStr.utf8).base64EncodedString()
+            self.setIsAuthenticating(true)
+            
+            defer {
+                self.setIsAuthenticating(false)
+            }
+            _ = try await self.send("AUTHENTICATE XOAUTH2 \(b64)")
+        }
     }
 
     public func selectFolder(_ folder: String) async throws {
-        _ = try await send("SELECT \"\(folder)\"")
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            _ = try await self.send("SELECT \"\(folder)\"")
+        }
     }
 
     public func listFolders() async throws -> [String] {
-        let lines = try await send("LIST \"\" \"*\"")
-        return lines.compactMap { line -> String? in
-            guard line.hasPrefix("* LIST") else { return nil }
-            if let lastQuote = line.range(of: "\"", options: .backwards),
-               let firstQuote = line.range(of: "\"", options: .backwards, range: line.startIndex..<lastQuote.lowerBound) {
-                return String(line[firstQuote.upperBound..<lastQuote.lowerBound])
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            let lines = try await self.send("LIST \"\" \"*\"")
+            return lines.compactMap { line -> String? in
+                guard line.hasPrefix("* LIST") else { return nil }
+                if let lastQuote = line.range(of: "\"", options: .backwards),
+                   let firstQuote = line.range(of: "\"", options: .backwards, range: line.startIndex..<lastQuote.lowerBound) {
+                    return String(line[firstQuote.upperBound..<lastQuote.lowerBound])
+                }
+                return nil
             }
-            return nil
         }
     }
 
     public func createFolder(_ name: String) async throws {
-        do {
-            _ = try await send("CREATE \"\(name)\"")
-        } catch {
-            MailSorterLog.imap.info("CREATE \(name, privacy: .public) maybe exists: \(error.localizedDescription, privacy: .public)")
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            do {
+                _ = try await self.send("CREATE \"\(name)\"")
+            } catch {
+                MailSorterLog.imap.info("CREATE \(name, privacy: .public) maybe exists: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
     public func fetchUnseen(excluding knownUIDs: Set<UInt32> = []) async throws -> [IMAPMessage] {
-        let searchLines = try await send("UID SEARCH UNSEEN")
-        var uids: [UInt32] = searchLines
-            .filter { $0.hasPrefix("* SEARCH") }
-            .flatMap { line -> [UInt32] in
-                let parts = line.dropFirst("* SEARCH".count).split(separator: " ")
-                return parts.compactMap { UInt32($0) }
-            }
-        
-        uids = uids.filter { !knownUIDs.contains($0) }
-        
-        // Limit to 50 unseen emails at once to avoid blocking UI or daemon forever
-        let limit = 50
-        if uids.count > limit {
-            uids = Array(uids.suffix(limit))
-        }
-
-        var messages: [IMAPMessage] = []
-        for uid in uids {
-            let lines = try await send("UID FETCH \(uid) BODY.PEEK[]")
-            var joined = lines.joined(separator: "\n")
-            
-            // IMAP FETCH 응답의 시작 부분 찌꺼기 제거: 예) "* 1 FETCH (UID 1 BODY[] {1234}"
-            if let braceRange = joined.range(of: "\\{\\d+\\}\\s*\\n", options: .regularExpression) {
-                joined = String(joined[braceRange.upperBound...])
-            } else if let bodyBracketRange = joined.range(of: "BODY[]") {
-                joined = String(joined[bodyBracketRange.upperBound...])
-            }
-
-            var bodyText = ""
-            var headersText = ""
-            // 헤더와 본문을 분리하는 첫 번째 빈 줄 찾기
-            if let separatorRange = joined.range(of: "\n\n") ?? joined.range(of: "\r\n\r\n") {
-                headersText = String(joined[..<separatorRange.lowerBound])
-                bodyText = String(joined[separatorRange.upperBound...])
-                
-                // 맨 마지막에 붙어있는 IMAP 응답 찌꺼기 제거 (ex: ") \n a0008 OK Success")
-                if let lastParen = bodyText.lastIndex(of: ")") {
-                    let suffix = bodyText[lastParen...]
-                    if suffix.contains(" OK ") || suffix.contains(" BAD ") || suffix.contains(" FETCH ") {
-                        bodyText = String(bodyText[..<lastParen])
-                    }
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            let searchLines = try await self.send("UID SEARCH UNSEEN")
+            var uids: [UInt32] = searchLines
+                .filter { $0.hasPrefix("* SEARCH") }
+                .flatMap { line -> [UInt32] in
+                    let parts = line.dropFirst("* SEARCH".count).split(separator: " ")
+                    return parts.compactMap { UInt32($0) }
                 }
-                bodyText = bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                headersText = joined
-                bodyText = joined
+            
+            uids = uids.filter { !knownUIDs.contains($0) }
+            
+            let limit = 50
+            if uids.count > limit {
+                uids = Array(uids.suffix(limit))
             }
 
-            let from = extractHeader(name: "From", in: headersText) ?? ""
-            let subject = decodeMIMEHeader(extractHeader(name: "Subject", in: headersText) ?? "")
-            let dateStr = extractHeader(name: "Date", in: headersText) ?? ""
-            let messageId = extractHeader(name: "Message-ID", in: headersText) ?? UUID().uuidString
-            let date = parseRFC5322Date(dateStr) ?? Date()
-            let (addr, name) = parseAddress(from)
-            
-            // MIME Multipart 디코딩 (HTML 또는 Plain Text 추출)
-            bodyText = extractMIMEText(from: bodyText, headers: headersText)
+            var messages: [IMAPMessage] = []
+            for uid in uids {
+                let lines = try await self.send("UID FETCH \(uid) BODY.PEEK[]")
+                var joined = lines.joined(separator: "\n")
+                
+                if let braceRange = joined.range(of: "\\{\\d+\\}\\s*\\n", options: .regularExpression) {
+                    joined = String(joined[braceRange.upperBound...])
+                } else if let bodyBracketRange = joined.range(of: "BODY[]") {
+                    joined = String(joined[bodyBracketRange.upperBound...])
+                }
 
-            messages.append(IMAPMessage(
-                uid: uid,
-                from: addr,
-                fromName: name,
-                subject: subject,
-                body: bodyText,
-                date: date,
-                messageId: messageId
-            ))
+                var bodyText = ""
+                var headersText = ""
+                if let separatorRange = joined.range(of: "\n\n") ?? joined.range(of: "\r\n\r\n") {
+                    headersText = String(joined[..<separatorRange.lowerBound])
+                    bodyText = String(joined[separatorRange.upperBound...])
+                    
+                    if let lastParen = bodyText.lastIndex(of: ")") {
+                        let suffix = bodyText[lastParen...]
+                        if suffix.contains(" OK ") || suffix.contains(" BAD ") || suffix.contains(" FETCH ") {
+                            bodyText = String(bodyText[..<lastParen])
+                        }
+                    }
+                    bodyText = bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    headersText = joined
+                    bodyText = joined
+                }
+
+                let from = extractHeader(name: "From", in: headersText) ?? ""
+                let subject = decodeMIMEHeader(extractHeader(name: "Subject", in: headersText) ?? "")
+                let dateStr = extractHeader(name: "Date", in: headersText) ?? ""
+                let messageId = extractHeader(name: "Message-ID", in: headersText) ?? UUID().uuidString
+                let date = parseRFC5322Date(dateStr) ?? Date()
+                let (addr, name) = parseAddress(from)
+                
+                bodyText = extractMIMEText(from: bodyText, headers: headersText)
+
+                messages.append(IMAPMessage(
+                    uid: uid,
+                    from: addr,
+                    fromName: name,
+                    subject: subject,
+                    body: bodyText,
+                    date: date,
+                    messageId: messageId
+                ))
+            }
+            return messages
         }
-        return messages
     }
 
     public func move(uid: UInt32, toFolder: String) async throws {
-        do {
-            _ = try await send("UID MOVE \(uid) \"\(toFolder)\"")
-        } catch {
-            _ = try await send("UID COPY \(uid) \"\(toFolder)\"")
-            _ = try await send("UID STORE \(uid) +FLAGS (\\Deleted)")
-            _ = try await send("EXPUNGE")
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            do {
+                _ = try await self.send("UID MOVE \(uid) \"\(toFolder)\"")
+            } catch {
+                _ = try await self.send("UID COPY \(uid) \"\(toFolder)\"")
+                _ = try await self.send("UID STORE \(uid) +FLAGS (\\Deleted)")
+                _ = try await self.send("EXPUNGE")
+            }
         }
     }
 
     public func delete(uid: UInt32) async throws {
-        _ = try await send("UID STORE \(uid) +FLAGS (\\Deleted)")
-        _ = try await send("EXPUNGE")
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            _ = try await self.send("UID STORE \(uid) +FLAGS (\\Deleted)")
+            _ = try await self.send("EXPUNGE")
+        }
     }
 
     public func idle(onChange: @Sendable @escaping () -> Void = {}) async throws {
-        self.idleHandler = onChange
-        
-        let timeoutTask = Task {
-            try? await Task.sleep(nanoseconds: 28 * 60 * 1_000_000_000)
-            if !Task.isCancelled {
-                self.connection?.send(content: "DONE\r\n".data(using: .utf8), completion: .contentProcessed { _ in })
+        try await runSerialized { [weak self] in
+            guard let self else { throw NSError(domain: "IMAP", code: -3) }
+            self.setIdleHandlerAndIdling(onChange, idling: true)
+            
+            let timeoutTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 28 * 60 * 1_000_000_000)
+                if !Task.isCancelled {
+                    self?.stopIdleInternal()
+                }
             }
+            
+            defer {
+                self.setIsIdling(false)
+                timeoutTask.cancel()
+            }
+            
+            _ = try await self.send("IDLE")
         }
-        
-        _ = try await send("IDLE")
-        timeoutTask.cancel()
     }
 
     public func disconnect() async {
-        _ = try? await send("LOGOUT")
-        connection?.cancel()
-        connection = nil
-        connected = false
+        _ = try? await runSerialized { [weak self] in
+            guard let self else { return }
+            _ = try? await self.send("LOGOUT")
+            self.updateConnectionState(connected: false, cancelConnection: true)
+        }
     }
 }
 
