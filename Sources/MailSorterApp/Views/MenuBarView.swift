@@ -128,5 +128,6 @@ struct MenuBarView: View {
             .keyboardShortcut("q", modifiers: [.command])
         }
         .padding(12)
+        .onAppear { store.refresh() }
     }
 }

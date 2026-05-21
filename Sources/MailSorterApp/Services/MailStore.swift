@@ -42,15 +42,16 @@ public final class MailStore: ObservableObject {
         pollingTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refresh()
-                if let last = self?.lastDaemonHeartbeat, Date().timeIntervalSince(last) > 25 {
+                let now = Date()
+                let daemonAlive = self?.lastDaemonHeartbeat.map { now.timeIntervalSince($0) < 25 } ?? false
+                if !daemonAlive {
                     self?.isDaemonRunning = false
-                } else if self?.lastDaemonHeartbeat == nil {
-                    self?.isDaemonRunning = false
+                    self?.fetchAndRefresh()
                 }
             }
         }
-        // Fallback IMAP fetch every 5 minutes in case daemon is not running
-        autoFetchTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        // Safety-net IMAP fetch every 60 seconds regardless of daemon state
+        autoFetchTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.fetchAndRefresh() }
         }
         refresh()

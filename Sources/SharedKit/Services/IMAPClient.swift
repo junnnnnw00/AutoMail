@@ -79,6 +79,13 @@ public final class IMAPClient: IMAPClientProtocol, @unchecked Sendable {
             }
             if isComplete || error != nil {
                 self.connected = false
+                let connError: Error = error ?? NSError(domain: "IMAP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Connection closed"])
+                if let cont = self.pendingContinuation {
+                    self.pendingContinuation = nil
+                    self.pendingTag = nil
+                    self.pendingLines = []
+                    cont.resume(throwing: connError)
+                }
                 return
             }
             self.startReading()

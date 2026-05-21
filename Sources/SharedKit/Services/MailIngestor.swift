@@ -50,11 +50,11 @@ public actor MailIngestor {
                 newlyImportant.append(mail)
             }
         }
-        if !newlyImportant.isEmpty {
-            EventBus.post(.newMail, userInfo: ["count": String(newlyImportant.count)])
-            if prefs.immediateImportantAlerts {
-                await NotificationCenterClient.shared.notifyImportant(mails: newlyImportant)
-            }
+        if !messages.isEmpty {
+            EventBus.post(.newMail, userInfo: ["count": String(messages.count)])
+        }
+        if !newlyImportant.isEmpty && prefs.immediateImportantAlerts {
+            await NotificationCenterClient.shared.notifyImportant(mails: newlyImportant)
         }
         return messages.count
     }
