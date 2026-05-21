@@ -24,45 +24,50 @@ struct SettingsView: View {
         .frame(width: 580, height: 500)
     }
 
-    // MARK: - Account Tab
+    // MARK: - Account
 
     private var accountTab: some View {
-        Form {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                // Info banner
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "info.circle.fill")
                         .foregroundStyle(.blue)
-                        .font(.system(size: 14))
-                        .padding(.top, 1)
-                    Text("학교 메일을 개인 Gmail로 자동 전달한 뒤 Gmail 계정을 연결하세요.\n'Google 계정 관리 > 보안 > 2단계 인증 > 앱 비밀번호'에서 16자리 비밀번호를 발급받으세요.")
+                    Text("학교 메일을 개인 Gmail로 자동 전달한 뒤 아래 Gmail 계정을 연결하세요.\n'Google 계정 관리 > 보안 > 2단계 인증 > 앱 비밀번호'에서 16자리 비밀번호를 발급받으세요.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(8)
-                .background(Color.blue.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.blue.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            Section("서버") {
-                TextField("서버 (예: imap.gmail.com)", text: $settings.imapHost)
-                    .labelsHidden()
-                HStack(spacing: 12) {
-                    TextField("포트", value: $settings.imapPort, format: .number)
-                        .labelsHidden()
-                        .frame(width: 70)
-                    Toggle("TLS 사용", isOn: $settings.imapUseTLS)
+                GroupBox("서버") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("서버 (예: imap.gmail.com)", text: $settings.imapHost)
+                            .textFieldStyle(.roundedBorder)
+                        HStack(spacing: 12) {
+                            TextField("포트", value: $settings.imapPort, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                            Toggle("TLS 사용", isOn: $settings.imapUseTLS)
+                            Spacer()
+                        }
+                    }
+                    .padding(.top, 4)
                 }
-            }
 
-            Section("계정") {
-                TextField("이메일 주소", text: $settings.imapUsername)
-                    .labelsHidden()
-                SecureField("앱 비밀번호 (16자리, 띄어쓰기 없이)", text: $settings.imapPassword)
-                    .labelsHidden()
-            }
+                GroupBox("계정") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("이메일 주소 (@gmail.com)", text: $settings.imapUsername)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField("앱 비밀번호 (16자리, 띄어쓰기 없이)", text: $settings.imapPassword)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .padding(.top, 4)
+                }
 
-            Section {
                 HStack(spacing: 8) {
                     Button("저장 + 키체인 등록") { saveCredentials() }
                         .disabled(saving || testingConnection)
@@ -70,27 +75,33 @@ struct SettingsView: View {
                         .disabled(testingConnection || settings.imapHost.isEmpty
                                   || settings.imapUsername.isEmpty || settings.imapPassword.isEmpty)
                     if testingConnection { ProgressView().scaleEffect(0.7) }
+                    Spacer()
                 }
+
                 if let accountStatus {
                     Text(accountStatus)
                         .font(.caption)
-                        .foregroundStyle(statusColor(accountStatus, ok: "✓", err: "✗"))
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(statusColor(accountStatus))
                 }
             }
+            .padding(16)
         }
     }
 
-    // MARK: - Notification Tab
+    // MARK: - Notifications
 
     private var notificationTab: some View {
-        Form {
-            Section("알림 설정") {
-                DatePicker("일일 다이제스트 시각", selection: $settings.digestTime,
-                           displayedComponents: .hourAndMinute)
-                Toggle("중요 메일 도착 즉시 알림", isOn: $settings.immediateImportantAlerts)
-            }
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                GroupBox("알림 설정") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        DatePicker("일일 다이제스트 시각", selection: $settings.digestTime,
+                                   displayedComponents: .hourAndMinute)
+                        Toggle("중요 메일 도착 즉시 알림", isOn: $settings.immediateImportantAlerts)
+                    }
+                    .padding(.top, 4)
+                }
+
                 HStack(spacing: 8) {
                     Button("알림 권한 요청") {
                         Task { await NotificationCenterClient.shared.requestAuthorization() }
@@ -99,33 +110,39 @@ struct SettingsView: View {
                         settings.savePrefs()
                         notifyStatus = "저장됨"
                     }
+                    Spacer()
                 }
+
                 if let notifyStatus {
                     Text(notifyStatus).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .padding(16)
         }
     }
 
-    // MARK: - Classifier Tab
+    // MARK: - Classifier
 
     private var classifierTab: some View {
-        Form {
-            Section("자동 학습") {
-                Stepper("재학습 임계: 라벨 \(settings.retrainThreshold)건",
-                        value: $settings.retrainThreshold, in: 5...200, step: 5)
-                HStack(spacing: 8) {
-                    TextField("교내회보 폴더명", text: $settings.folderNewsletter)
-                        .labelsHidden()
-                    TextField("광고 폴더명", text: $settings.folderAd)
-                        .labelsHidden()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                GroupBox("자동 학습") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Stepper("재학습 임계: 라벨 \(settings.retrainThreshold)건",
+                                value: $settings.retrainThreshold, in: 5...200, step: 5)
+                        HStack(spacing: 8) {
+                            TextField("교내회보 폴더명", text: $settings.folderNewsletter)
+                                .textFieldStyle(.roundedBorder)
+                            TextField("광고 폴더명", text: $settings.folderAd)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        Text("라벨 결과에 따라 지정 폴더로 자동 이동 (없으면 자동 생성)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
                 }
-                Text("라벨 결과에 따라 지정 폴더로 자동 이동 (없으면 자동 생성)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
 
-            Section {
                 HStack(spacing: 8) {
                     Button("저장") {
                         settings.savePrefs()
@@ -135,69 +152,79 @@ struct SettingsView: View {
                         .disabled(isTraining)
                     if isTraining {
                         ProgressView().scaleEffect(0.7)
+                        Text("학습 중...").font(.caption).foregroundStyle(.secondary)
                     }
+                    Spacer()
                 }
-                if isTraining {
-                    Text("학습 중... 잠시 기다려주세요")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if let classifierStatus {
+
+                if !isTraining, let classifierStatus {
                     Text(classifierStatus)
                         .font(.caption)
-                        .foregroundStyle(statusColor(classifierStatus, ok: "재학습 완료", err: "실패"))
+                        .foregroundStyle(statusColor(classifierStatus))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .padding(16)
         }
     }
 
-    // MARK: - Daemon Tab
+    // MARK: - Daemon
 
     private var daemonTab: some View {
-        Form {
-            Section("데몬 (백그라운드 메일 수신)") {
-                Toggle("로그인 시 데몬 자동 시작", isOn: $launchAgentEnabled)
-                    .onChange(of: launchAgentEnabled) { _, newValue in
-                        do {
-                            if newValue { try LaunchAgentInstaller.register() }
-                            else { try LaunchAgentInstaller.unregister() }
-                            daemonStatus = newValue ? "데몬 등록됨" : "데몬 해제됨"
-                        } catch {
-                            daemonStatus = "실패: \(error.localizedDescription)"
-                            launchAgentEnabled = LaunchAgentInstaller.isRegistered
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                GroupBox("데몬 (백그라운드 메일 수신)") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("로그인 시 데몬 자동 시작", isOn: $launchAgentEnabled)
+                            .onChange(of: launchAgentEnabled) { _, newValue in
+                                do {
+                                    if newValue { try LaunchAgentInstaller.register() }
+                                    else { try LaunchAgentInstaller.unregister() }
+                                    daemonStatus = newValue ? "데몬 등록됨" : "데몬 해제됨"
+                                } catch {
+                                    daemonStatus = "실패: \(error.localizedDescription)"
+                                    launchAgentEnabled = LaunchAgentInstaller.isRegistered
+                                }
+                            }
+                        Text(LaunchAgentInstaller.plistURL.path)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                Text(LaunchAgentInstaller.plistURL.path)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-            }
+                    .padding(.top, 4)
+                }
 
-            Section("앱 (메뉴바)") {
-                Toggle("로그인 시 앱 자동 시작", isOn: $appLoginItemEnabled)
-                    .onChange(of: appLoginItemEnabled) { _, newValue in
-                        do {
-                            if newValue { try LaunchAgentInstaller.registerAppLoginItem() }
-                            else { try LaunchAgentInstaller.unregisterAppLoginItem() }
-                            daemonStatus = newValue ? "앱 로그인 항목 등록됨" : "앱 로그인 항목 해제됨"
-                        } catch {
-                            daemonStatus = "실패: \(error.localizedDescription)"
-                            appLoginItemEnabled = LaunchAgentInstaller.isAppLoginItemRegistered
-                        }
+                GroupBox("앱 (메뉴바)") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("로그인 시 앱 자동 시작", isOn: $appLoginItemEnabled)
+                            .onChange(of: appLoginItemEnabled) { _, newValue in
+                                do {
+                                    if newValue { try LaunchAgentInstaller.registerAppLoginItem() }
+                                    else { try LaunchAgentInstaller.unregisterAppLoginItem() }
+                                    daemonStatus = newValue ? "앱 로그인 항목 등록됨" : "앱 로그인 항목 해제됨"
+                                } catch {
+                                    daemonStatus = "실패: \(error.localizedDescription)"
+                                    appLoginItemEnabled = LaunchAgentInstaller.isAppLoginItemRegistered
+                                }
+                            }
+                        Text("독 아이콘: 앱 실행 후 독에서 우클릭 → 옵션 → Dock에 유지")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                Text("독 아이콘: 앱 실행 후 독에서 우클릭 → 옵션 → Dock에 유지")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                    .padding(.top, 4)
+                }
 
-            if let daemonStatus {
-                Text(daemonStatus).font(.caption).foregroundStyle(.secondary)
+                if let daemonStatus {
+                    Text(daemonStatus).font(.caption).foregroundStyle(.secondary)
+                }
             }
+            .padding(16)
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Helpers
 
     private func retrain() {
         isTraining = true
@@ -205,12 +232,12 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await Trainer().trainIfReady()
-                classifierStatus = "재학습 완료"
+                classifierStatus = "✓ 재학습 완료"
                 EventBus.post(.modelReloaded)
             } catch TrainerError.notEnoughSamples(let count) {
-                classifierStatus = "샘플 부족 (\(count)개 — 최소 20개 필요)"
+                classifierStatus = "✗ 샘플 부족 (\(count)개 / 최소 20개 필요)"
             } catch {
-                classifierStatus = "실패: \(error.localizedDescription)"
+                classifierStatus = "✗ 실패: \(error.localizedDescription)"
             }
             isTraining = false
         }
@@ -251,9 +278,9 @@ struct SettingsView: View {
         }
     }
 
-    private func statusColor(_ text: String, ok: String, err: String) -> Color {
-        if text.hasPrefix(ok) || text.hasPrefix("✓") { return .green }
-        if text.hasPrefix(err) || text.hasPrefix("✗") || text.hasPrefix("샘플") { return .red }
+    private func statusColor(_ text: String) -> Color {
+        if text.hasPrefix("✓") { return .green }
+        if text.hasPrefix("✗") { return .red }
         return .secondary
     }
 }
