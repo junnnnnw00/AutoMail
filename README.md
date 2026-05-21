@@ -4,8 +4,8 @@
 
 > **요구사항**: macOS 14.0+, Apple Silicon (arm64)
 
-<img width="392" height="298" alt="Screenshot 2026-05-20 at 6 37 35 PM" src="https://github.com/user-attachments/assets/d327dea7-6d3e-4f43-8ffd-c67698bbc09f" />
-<img width="1372" height="934" alt="Screenshot 2026-05-20 at 6 37 50 PM" src="https://github.com/user-attachments/assets/7047a09e-3f2f-4599-a69c-4bf1705e7228" />
+<img width="381" height="297" alt="Screenshot 2026-05-21 at 10 43 42 AM" src="https://github.com/user-attachments/assets/898ef0d4-c543-434d-93e7-690215f7eaa8" />
+<img width="1372" height="934" alt="Screenshot 2026-05-21 at 10 43 15 AM" src="https://github.com/user-attachments/assets/9d92d8b5-6a45-4a37-b9ce-d25e02aad278" />
 
 ## 설치
 
