@@ -22,6 +22,7 @@ public protocol IMAPClientProtocol: AnyObject, Sendable {
     func delete(uid: UInt32) async throws
     func idle(onChange: @Sendable @escaping () -> Void) async throws
     func disconnect() async
+    func cancel()
 }
 
 public final class IMAPClient: IMAPClientProtocol, @unchecked Sendable {
@@ -563,6 +564,27 @@ public final class IMAPClient: IMAPClientProtocol, @unchecked Sendable {
             _ = try? await self.send("LOGOUT")
             self.updateConnectionState(connected: false, cancelConnection: true)
         }
+    }
+
+    public func cancel() {
+        lock.lock()
+        let conn = self.connection
+        self.connection = nil
+        self.connected = false
+        self.isIdling = false
+        
+        let cont = self.pendingContinuation
+        self.pendingContinuation = nil
+        self.pendingTag = nil
+        self.pendingLines = []
+        lock.unlock()
+        
+        cont?.resume(throwing: NSError(domain: "IMAP", code: -4, userInfo: [NSLocalizedDescriptionKey: "Connection cancelled synchronously"]))
+        conn?.cancel()
+    }
+
+    deinit {
+        cancel()
     }
 }
 

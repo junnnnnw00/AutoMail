@@ -109,6 +109,9 @@ public final class MailStore: ObservableObject {
                     return
                 }
                 let client = IMAPClient(creds: creds)
+                defer {
+                    client.cancel()
+                }
                 try await client.connect()
                 try await client.login()
                 try await client.selectFolder("INBOX")
@@ -186,6 +189,9 @@ public final class MailStore: ObservableObject {
             do {
                 guard let creds = try KeychainStore.loadIMAPCredentials() else { return }
                 let client = IMAPClient(creds: creds)
+                defer {
+                    client.cancel()
+                }
                 try await client.connect()
                 try await client.login()
                 try await client.selectFolder("INBOX")
@@ -214,6 +220,9 @@ public final class MailStore: ObservableObject {
             do {
                 guard let creds = try KeychainStore.loadIMAPCredentials() else { return }
                 let client = IMAPClient(creds: creds)
+                defer {
+                    client.cancel()
+                }
                 try await client.connect()
                 try await client.login()
                 try await client.selectFolder("INBOX")

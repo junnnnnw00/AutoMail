@@ -56,6 +56,10 @@ public actor MailDaemon {
 
         let client = IMAPClient(creds: creds)
         self.client = client
+        defer {
+            self.client = nil
+            client.cancel()
+        }
         try await client.connect()
         try await client.login()
 

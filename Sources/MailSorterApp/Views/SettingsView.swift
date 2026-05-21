@@ -373,6 +373,9 @@ struct SettingsView: View {
         Task {
             do {
                 let client = IMAPClient(creds: creds)
+                defer {
+                    client.cancel()
+                }
                 try await client.connect()
                 try await client.login()
                 await client.disconnect()
