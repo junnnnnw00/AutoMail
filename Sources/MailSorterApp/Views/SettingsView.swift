@@ -4,6 +4,7 @@ import ServiceManagement
 
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var store: MailStore
     @State private var accountStatus: String?
     @State private var notifyStatus: String?
     @State private var classifierStatus: String?
@@ -19,6 +20,7 @@ struct SettingsView: View {
             accountTab.tabItem { Label("계정", systemImage: "person.crop.circle") }
             notificationTab.tabItem { Label("알림", systemImage: "bell") }
             classifierTab.tabItem { Label("분류", systemImage: "brain") }
+            statsTab.tabItem { Label("통계", systemImage: "chart.bar") }
             daemonTab.tabItem { Label("데몬", systemImage: "gear") }
         }
         .frame(width: 580, height: 500)
@@ -165,6 +167,110 @@ struct SettingsView: View {
                 }
             }
             .padding(16)
+        }
+    }
+
+    // MARK: - Stats
+
+    private var statsTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let s = store.classifierStats {
+                    GroupBox("모델 상태") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Image(systemName: s.modelExists ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(s.modelExists ? .green : .red)
+                                Text(s.modelExists ? "학습된 모델 존재" : "모델 없음 (규칙 전용)")
+                            }
+                            if let trained = s.lastTrainedAt {
+                                Text("마지막 학습: \(trained.formatted(date: .abbreviated, time: .shortened))")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("학습 이력 없음").foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.callout)
+                        .padding(.top, 4)
+                    }
+
+                    GroupBox("분류 정확도") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("자동 분류 유지율")
+                                Spacer()
+                                Text(String(format: "%.1f%%", s.autoAccuracyRate * 100))
+                                    .bold()
+                                    .foregroundStyle(s.autoAccuracyRate >= 0.8 ? .green : s.autoAccuracyRate >= 0.6 ? .orange : .red)
+                            }
+                            HStack {
+                                Text("사용자 수정")
+                                Spacer()
+                                Text("\(s.userOverrideCount) / \(s.totalMails)건")
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack {
+                                Text("미소비 피드백")
+                                Spacer()
+                                Text("\(s.pendingFeedback)건")
+                                    .foregroundStyle(s.pendingFeedback > 0 ? .orange : .secondary)
+                            }
+                        }
+                        .font(.callout)
+                        .padding(.top, 4)
+                    }
+
+                    GroupBox("라벨 분포") {
+                        VStack(spacing: 4) {
+                            ForEach(MailLabel.allCases, id: \.self) { label in
+                                let count = s.labelCounts[label] ?? 0
+                                let pct = s.totalMails > 0 ? Double(count) / Double(s.totalMails) : 0
+                                HStack(spacing: 8) {
+                                    Text(label.displayName).frame(width: 60, alignment: .leading)
+                                    GeometryReader { geo in
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(Color.accentColor.opacity(0.25))
+                                            .frame(width: geo.size.width * pct)
+                                    }
+                                    .frame(height: 14)
+                                    Text("\(count)").foregroundStyle(.secondary).frame(width: 32, alignment: .trailing)
+                                }
+                            }
+                        }
+                        .font(.callout)
+                        .padding(.top, 4)
+                    }
+
+                    GroupBox("분류 출처") {
+                        VStack(spacing: 4) {
+                            ForEach(["model", "combined", "rule", "fallback", "unknown"], id: \.self) { src in
+                                let count = s.sourceCounts[src] ?? 0
+                                guard count > 0 else { return AnyView(EmptyView()) }
+                                return AnyView(HStack {
+                                    Text(sourceLabel(src))
+                                    Spacer()
+                                    Text("\(count)건").foregroundStyle(.secondary)
+                                })
+                            }
+                        }
+                        .font(.callout)
+                        .padding(.top, 4)
+                    }
+                } else {
+                    ProgressView("통계 로딩 중...")
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    private func sourceLabel(_ src: String) -> String {
+        switch src {
+        case "model":    return "ML 모델"
+        case "combined": return "모델 + 규칙"
+        case "rule":     return "규칙 전용"
+        case "fallback": return "폴백 (모델 없음)"
+        default:         return "알 수 없음 (구버전)"
         }
     }
 

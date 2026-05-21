@@ -13,11 +13,14 @@ public final class MailStore: ObservableObject {
     @Published public private(set) var fetchError: String?
     @Published public private(set) var lastSyncedAt: Date?
     @Published public private(set) var isDaemonRunning = false
+    @Published public private(set) var classifierStats: ClassifierStats?
+    @Published public private(set) var searchResults: [Mail]? = nil
 
     private var observers: [NSObjectProtocol] = []
     private var pollingTimer: Timer?
     private var autoFetchTimer: Timer?
     private var lastDaemonHeartbeat: Date?
+    private var searchCancellable: AnyCancellable?
 
     public var isModelTrained: Bool {
         FileManager.default.fileExists(atPath: AppPaths.compiledClassifierURL.path)
@@ -39,6 +42,13 @@ public final class MailStore: ObservableObject {
                 self?.isDaemonRunning = true
             }
         })
+        observers.append(EventBus.observe(.showNotification) { note in
+            let info = (note.userInfo as? [String: String]) ?? [:]
+            let title = info["title"] ?? ""
+            let body = info["body"] ?? ""
+            guard !title.isEmpty else { return }
+            Task { await NotificationCenterClient.shared.notifyRaw(title: title, body: body) }
+        })
         pollingTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refresh()
@@ -54,6 +64,24 @@ public final class MailStore: ObservableObject {
         autoFetchTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.fetchAndRefresh() }
         }
+
+        // 키입력마다 DB 스캔하지 않도록 300ms 디바운스 → 비동기 DB 검색
+        searchCancellable = $search
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .combineLatest($filter)
+            .sink { [weak self] (query, labelFilter) in
+                guard let self else { return }
+                let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !q.isEmpty else {
+                    self.searchResults = nil
+                    return
+                }
+                Task {
+                    let results = (try? Database.shared.mails(filter: labelFilter, searchQuery: q, limit: 200)) ?? []
+                    await MainActor.run { self.searchResults = results }
+                }
+            }
+
         refresh()
     }
 
@@ -62,6 +90,7 @@ public final class MailStore: ObservableObject {
             self.counts = try Database.shared.labelCounts()
             self.unreadCounts = try Database.shared.unreadLabelCounts()
             self.mails = try Database.shared.mails(limit: 500)
+            self.classifierStats = try Database.shared.classifierStats()
             self.lastSyncedAt = Date()
         } catch {
             MailSorterLog.app.error("refresh failed: \(error.localizedDescription, privacy: .public)")
@@ -95,14 +124,11 @@ public final class MailStore: ObservableObject {
     }
 
     public var visibleMails: [Mail] {
-        let filtered = filter == nil ? mails : mails.filter { $0.labels.contains(filter!) }
-        let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return filtered }
-        return filtered.filter {
-            $0.subject.lowercased().contains(q)
-                || $0.fromAddress.lowercased().contains(q)
-                || $0.body.lowercased().contains(q)
+        // 검색 중: DB 비동기 결과 사용 (디바운스 전 빈 배열로 깜빡임 방지)
+        if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return searchResults ?? []
         }
+        return filter == nil ? mails : mails.filter { $0.labels.contains(filter!) }
     }
 
     public func relabel(mail: Mail, to newLabel: MailLabel) {

@@ -58,7 +58,7 @@ public actor DigestScheduler {
             body += "... 외 \(mails.count - 5)건"
         }
 
-        await NotificationCenterClient.shared.scheduleDailyDigest(body: body)
+        EventBus.post(.showNotification, userInfo: ["title": "오늘의 메일 다이제스트", "body": body])
 
         do {
             let mailCount = mails.count

@@ -11,11 +11,20 @@ public struct ClassificationResult: Sendable {
         scores.values.max() ?? 0.5
     }
 
-    public enum Source: Sendable {
+    public enum Source: Sendable, CustomStringConvertible {
         case rule(String)
         case model
         case fallback
         case combined(ruleReason: String)
+
+        public var description: String {
+            switch self {
+            case .rule(let r):     return "rule:\(r)"
+            case .model:           return "model"
+            case .fallback:        return "fallback"
+            case .combined(let r): return "combined:\(r)"
+            }
+        }
     }
 }
 
@@ -108,10 +117,21 @@ public final class NLClassifier: @unchecked Sendable {
             finalLabels.remove(.ad)
         }
 
+        // newsletter 규칙 고신뢰도(≥0.95) + important 점수 약함(<0.70) → important 제거
+        // ML이 충분히 학습되면(important score ≥0.70) 교내회보 내 중요 메일도 살아남음
+        if Rules.isNewsletterPrefix(subject),
+           finalLabels.contains(.newsletter),
+           finalLabels.contains(.important),
+           ruleHits.contains(where: { $0.label == .newsletter && $0.score >= 0.95 }) {
+            if (finalScores[.important] ?? 0) < 0.70 {
+                finalLabels.remove(.important)
+            }
+        }
+
         if finalLabels.count > 1 {
             finalLabels.remove(.normal)
         }
-        
+
         if finalLabels.isEmpty {
             finalLabels.insert(.normal)
         }

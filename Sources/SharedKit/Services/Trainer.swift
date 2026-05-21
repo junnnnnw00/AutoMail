@@ -18,15 +18,19 @@ public final class Trainer: @unchecked Sendable {
     public static let minimumSamples = 20
 
     public func trainIfReady() async throws -> URL? {
+        let pending = try Database.shared.unconsumedFeedback()
         let labeled = try Database.shared.allLabeledMails()
             .filter { $0.userOverridden || $0.score >= 0.85 }
-        // Count expanded training samples (multi-label mails contribute one sample per label)
         let expandedCount = labeled.reduce(0) { $0 + $1.labels.count }
         if expandedCount < Self.minimumSamples {
             MailSorterLog.trainer.info("not enough samples to train: \(expandedCount) expanded from \(labeled.count) mails")
             throw TrainerError.notEnoughSamples(count: expandedCount)
         }
-        return try await train(samples: labeled)
+        let url = try await train(samples: labeled)
+        // 학습 성공 후 피드백 소비 처리 (데몬/UI 양쪽 모두 여기서 처리)
+        let ids = pending.compactMap { $0.id }
+        try? Database.shared.markFeedbackConsumed(ids: ids)
+        return url
     }
 
     public func train(samples: [Mail]) async throws -> URL {

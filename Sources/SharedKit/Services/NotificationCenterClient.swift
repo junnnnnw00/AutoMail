@@ -36,6 +36,19 @@ public final class NotificationCenterClient: @unchecked Sendable {
         }
     }
 
+    public func notifyRaw(title: String, body: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "relay.\(UUID().uuidString)", content: content, trigger: nil)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            MailSorterLog.notify.error("relay notify failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     public func scheduleDailyDigest(body: String) async {
         let center = UNUserNotificationCenter.current()
         let content = UNMutableNotificationContent()

@@ -19,7 +19,8 @@ struct RulesTests {
 
     @Test func importantScholarship() {
         let rules = Rules(patterns: Rules.defaultPatterns)
-        let hits = rules.evaluate(subject: "장학금 신청 안내", body: "마감 임박", fromAddress: "scholarship@school.ac.kr")
+        // 장학금 지급 대상자 — 개인 수령 확정 → important
+        let hits = rules.evaluate(subject: "장학금 지급 대상자 안내", body: "선정되었습니다", fromAddress: "scholarship@school.ac.kr")
         #expect(hits.contains(where: { $0.label == .important }))
     }
 
@@ -29,12 +30,13 @@ struct RulesTests {
         #expect(hits.isEmpty)
     }
 
-    @Test func multipleMatchingRules() {
+    @Test func newsletterPrefixSuppressesImportant() {
         let rules = Rules(patterns: Rules.defaultPatterns)
+        // 교내회보 제목 → important 규칙 억제, newsletter만 반환
         let hits = rules.evaluate(subject: "[교내회보] 2026학년도 1학기 국가장학금 신청 안내", body: "", fromAddress: "scholarship@school.ac.kr")
         let labels = Set(hits.map { $0.label })
         #expect(labels.contains(.newsletter))
-        #expect(labels.contains(.important))
+        #expect(!labels.contains(.important))
     }
 
     @Test func schoolDomainAdExclusion() {

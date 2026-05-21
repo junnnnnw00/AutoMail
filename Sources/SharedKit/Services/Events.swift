@@ -5,6 +5,8 @@ public enum MailSorterEvent: String, Sendable {
     case modelReloaded = "com.junwoo.mailsorter.modelReloaded"
     case labelChanged = "com.junwoo.mailsorter.labelChanged"
     case daemonHeartbeat = "com.junwoo.mailsorter.daemonHeartbeat"
+    // 데몬→앱 알림 릴레이 (데몬은 번들 없어 UNUserNotificationCenter 사용 불가)
+    case showNotification = "com.junwoo.mailsorter.showNotification"
 }
 
 public enum EventBus {

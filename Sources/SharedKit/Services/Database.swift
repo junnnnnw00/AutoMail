@@ -1,6 +1,20 @@
 import Foundation
 import GRDB
 
+public struct ClassifierStats: Sendable {
+    public var totalMails: Int
+    public var userOverrideCount: Int
+    public var labelCounts: [MailLabel: Int]
+    public var sourceCounts: [String: Int]
+    public var pendingFeedback: Int
+    public var lastTrainedAt: Date?
+    public var modelExists: Bool
+
+    public var autoAccuracyRate: Double {
+        totalMails > 0 ? 1.0 - Double(userOverrideCount) / Double(totalMails) : 1.0
+    }
+}
+
 public final class Database: @unchecked Sendable {
     public static let shared = Database()
 
@@ -67,6 +81,12 @@ public final class Database: @unchecked Sendable {
             try db.execute(sql: "UPDATE mails SET label = '[\"' || label || '\"]' WHERE label NOT LIKE '[%';")
         }
 
+        m.registerMigration("v3") { db in
+            try db.alter(table: "mails") { t in
+                t.add(column: "classificationSource", .text)
+            }
+        }
+
         return m
     }
 
@@ -97,15 +117,18 @@ public extension Database {
         }
     }
 
-    func mails(filter: MailLabel? = nil, limit: Int = 200) throws -> [Mail] {
+    func mails(filter: MailLabel? = nil, searchQuery: String? = nil, limit: Int = 200) throws -> [Mail] {
         try pool.read { db in
-            var req = Mail.order(Mail.Columns.receivedAt.desc).limit(limit)
+            var req = Mail.all()
             if let filter {
-                req = Mail.filter(sql: "label LIKE ?", arguments: ["%\(filter.rawValue)%"])
-                    .order(Mail.Columns.receivedAt.desc)
-                    .limit(limit)
+                req = req.filter(sql: "label LIKE ?", arguments: ["%\(filter.rawValue)%"])
             }
-            return try req.fetchAll(db)
+            if let searchQuery, !searchQuery.isEmpty {
+                let likeArg = "%\(searchQuery)%"
+                req = req.filter(sql: "subject LIKE ? OR fromAddress LIKE ? OR substr(body,1,2000) LIKE ?",
+                                 arguments: [likeArg, likeArg, likeArg])
+            }
+            return try req.order(Mail.Columns.receivedAt.desc).limit(limit).fetchAll(db)
         }
     }
 
@@ -117,6 +140,8 @@ public extension Database {
             mail.userOverridden = true
             mail.score = 1.0
             try mail.update(db)
+            // 같은 라벨로의 변경은 피드백 불필요
+            guard old.primaryLabel() != newLabels.primaryLabel() else { return }
             let fb = FeedbackEntry(mailId: mailId, oldLabel: old.primaryLabel(), newLabel: newLabels.primaryLabel())
             try fb.insert(db)
         }
@@ -189,6 +214,51 @@ public extension Database {
     func allLabeledMails() throws -> [Mail] {
         try pool.read { db in
             try Mail.fetchAll(db)
+        }
+    }
+
+    func classifierStats() throws -> ClassifierStats {
+        try pool.read { db in
+            let total = try Mail.fetchCount(db)
+            let overridden = try Mail.filter(Column("userOverridden") == true).fetchCount(db)
+
+            var labelCounts: [MailLabel: Int] = [:]
+            for label in MailLabel.allCases {
+                labelCounts[label] = try Mail
+                    .filter(sql: "label LIKE ?", arguments: ["%\(label.rawValue)%"])
+                    .fetchCount(db)
+            }
+
+            var sourceCounts: [String: Int] = [:]
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT
+                    CASE
+                        WHEN classificationSource LIKE 'model%'    THEN 'model'
+                        WHEN classificationSource LIKE 'combined%' THEN 'combined'
+                        WHEN classificationSource LIKE 'rule%'     THEN 'rule'
+                        WHEN classificationSource LIKE 'fallback%' THEN 'fallback'
+                        ELSE 'unknown'
+                    END as src,
+                    COUNT(*) as cnt
+                FROM mails
+                GROUP BY src
+                """)
+            for row in rows {
+                if let src = row["src"] as String?, let cnt = row["cnt"] as Int? {
+                    sourceCounts[src] = cnt
+                }
+            }
+
+            let pending = try FeedbackEntry.filter(Column("consumedAt") == nil).fetchCount(db)
+            return ClassifierStats(
+                totalMails: total,
+                userOverrideCount: overridden,
+                labelCounts: labelCounts,
+                sourceCounts: sourceCounts,
+                pendingFeedback: pending,
+                lastTrainedAt: Prefs.standard.lastTrainedAt,
+                modelExists: FileManager.default.fileExists(atPath: AppPaths.compiledClassifierURL.path)
+            )
         }
     }
 

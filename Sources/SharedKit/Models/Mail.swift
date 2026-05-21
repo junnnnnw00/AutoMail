@@ -15,6 +15,7 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable, FetchableRecord,
     public var userOverridden: Bool
     public var movedAt: Date?
     public var seenAt: Date?
+    public var classificationSource: String?
 
     public init(
         id: String,
@@ -29,7 +30,8 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable, FetchableRecord,
         score: Double,
         userOverridden: Bool = false,
         movedAt: Date? = nil,
-        seenAt: Date? = nil
+        seenAt: Date? = nil,
+        classificationSource: String? = nil
     ) {
         self.id = id
         self.uid = uid
@@ -44,6 +46,7 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable, FetchableRecord,
         self.userOverridden = userOverridden
         self.movedAt = movedAt
         self.seenAt = seenAt
+        self.classificationSource = classificationSource
     }
 
     public static let databaseTableName = "mails"
@@ -62,6 +65,7 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable, FetchableRecord,
         case userOverridden
         case movedAt
         case seenAt
+        case classificationSource
     }
 
     public enum Columns {
@@ -78,6 +82,7 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable, FetchableRecord,
         public static let userOverridden = Column("userOverridden")
         public static let movedAt = Column("movedAt")
         public static let seenAt = Column("seenAt")
+        public static let classificationSource = Column("classificationSource")
     }
 }
 

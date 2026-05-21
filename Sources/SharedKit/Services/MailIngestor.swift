@@ -11,6 +11,16 @@ public actor MailIngestor {
         self.prefs = prefs
     }
 
+    private static func notificationContent(for mails: [Mail]) -> (title: String, body: String) {
+        if mails.count == 1 {
+            let m = mails[0]
+            let preview = m.body.replacingOccurrences(of: "\n", with: " ").prefix(80)
+            return (m.subject, (m.fromName ?? m.fromAddress) + "\n" + String(preview))
+        }
+        let bullets = mails.prefix(3).map { "• \($0.subject)" }.joined(separator: "\n")
+        return ("중요 메일 \(mails.count)건", bullets)
+    }
+
     public func ingestUnseen() async throws -> Int {
         let knownUIDs = (try? Database.shared.allUIDs()) ?? []
         let messages = try await client.fetchUnseen(excluding: knownUIDs)
@@ -30,7 +40,8 @@ public actor MailIngestor {
                 receivedAt: msg.date,
                 labels: result.labels,
                 score: result.score,
-                userOverridden: false
+                userOverridden: false,
+                classificationSource: result.source.description
             )
             try Database.shared.upsertMail(mail)
             let labelsString = mail.labels.map { $0.rawValue }.joined(separator: ",")
@@ -54,7 +65,9 @@ public actor MailIngestor {
             EventBus.post(.newMail, userInfo: ["count": String(messages.count)])
         }
         if !newlyImportant.isEmpty && prefs.immediateImportantAlerts {
-            await NotificationCenterClient.shared.notifyImportant(mails: newlyImportant)
+            // 데몬은 번들 없어 UNUserNotificationCenter 직접 사용 불가 → 앱에 릴레이
+            let (title, body) = Self.notificationContent(for: newlyImportant)
+            EventBus.post(.showNotification, userInfo: ["title": title, "body": body])
         }
         return messages.count
     }
