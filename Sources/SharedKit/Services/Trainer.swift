@@ -15,14 +15,16 @@ public enum TrainerError: Error {
 public final class Trainer: @unchecked Sendable {
     public init() {}
 
-    public static let minimumSamples = 40
+    public static let minimumSamples = 20
 
     public func trainIfReady() async throws -> URL? {
         let labeled = try Database.shared.allLabeledMails()
             .filter { $0.userOverridden || $0.score >= 0.85 }
-        if labeled.count < Self.minimumSamples {
-            MailSorterLog.trainer.info("not enough samples to train: \(labeled.count)")
-            throw TrainerError.notEnoughSamples(count: labeled.count)
+        // Count expanded training samples (multi-label mails contribute one sample per label)
+        let expandedCount = labeled.reduce(0) { $0 + $1.labels.count }
+        if expandedCount < Self.minimumSamples {
+            MailSorterLog.trainer.info("not enough samples to train: \(expandedCount) expanded from \(labeled.count) mails")
+            throw TrainerError.notEnoughSamples(count: expandedCount)
         }
         return try await train(samples: labeled)
     }
